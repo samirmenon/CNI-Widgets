@@ -2,21 +2,33 @@
  * Sketch to read serial data from the GE MR750 physiological monitoring 
  * port in the PGR cabinet. 
  *
- * The data come in 12-byte (96-bit) packets delivered at 115200 bps in bursts
- * of about .8ms (96bits / 115.2bits/ms = .8333ms) with a burst coming every 5ms.
+ * The data come in 12-byte (96-bit) packets delivered at 115200 bps. A packet
+ * comes every 5ms, with silence between packets. This produces data bursts
+ * of 96bits / 115.2bits/ms = .8333ms with 5 - .8333 = 4.1667ms of silence.
  * (This timing pattern was confirmed with a scope.) So we can detect the start 
- * of a data packet by waiting for 4ms of silence (signal high) on the serial 
- * line. There might be a way to do this more cleverly, but the approach taken 
- * here is to send the serial signal into Rx and pin 2, which will be used to
- * trigger our data-read interrupt.
+ * of a data packet by waiting for up to 4ms of silence on the serial line.
+ * Here we only care about the PPG value. But the code could be easily modified 
+ * to do something with the other physiological readings.
  *
- * Beware of overflow! The data sum and sum-of-squares are maintained in long 
- * and unsigned long (respectively) vars. So, if your data values are high,
- * then the sum can overflow its container with larger buffer sizes. E.g.,
- * with a 1024 buffer and the full int16 range, you can safely capture the 
- * full range of int16 values. However, the sum-of-squares will limit you to
- * sqrt(2^32/1024) = 2048 as your average deviation from the mean. 
+ * To detect the pulse, we compute a running mean and standard deviation and
+ * for each new data point we compute a z-score. When several consecutive data
+ * point z-scores are above threshold, we signal that a pulse was detected. 
+ * With a Teensy 2++ (which has 8k SRAM), we can maintain a buffer size of
+ * 1024, which is 1024 * 0.005 = 5.12 seconds. This seems to be enough to give
+ * stable pulse detection.
+ *
+ * The PPG value sum and its sum-of-squares are maintained in long and unsigned 
+ * long (respectively) buffers. So, if your PPG data values are high and your 
+ * buffer big enough, you might overflow these containers. With a 1024 buffer, 
+ * you can safely capture the full range of int16 values in the data sum. 
+ * However, the sum-of-squares will limit you to sqrt(2^32/1024) = 2048 as your 
+ * average deviation from the mean. If you expect deviations higher than this,
+ * then you will want to decrease the buffer size or maybe try a larger container
+ * for the sum-of-squares.
  * (CHEKCK THIS)
+ *
+ * To Do:
+ *  - measure the data packet interval
  * 
  *
  * Copyright 2011 Robert F. Dougherty (bobd@stanford.edu)
@@ -56,13 +68,16 @@ ser.close()
 // precision. A 10 here will allow tenths precision for z-scores.
 #define ZSCALE 10
 
+// The data interval is not measured, but assumed. Maybe we could measure it?
+// Perhaps even just measure it once at the beginning to confirm the value set here?
 #define DATA_INTERVAL_MILLISEC 5
+// The minimal silent period that we will use to detect the start of a new packet:
 #define DATA_SILENCE_MILLISEC 2
 
-// We need to be careful that our two buffers will fit. We also want 
-// them to be a power of two so that we can use bit-shifting for division. 
-// If the update rate is 5ms, then 256 samples will give us a temporal 
-// window of ~1.3 sec, 512 = 2.6 sec, and 1024 just over 5 sec.
+// We need to be careful that our two buffers will fit in available SRAM. We 
+// also want them to be a power of two so that we can use bit-shifting for division. 
+// If the update rate is 5ms, then 256 samples will give us a temporal window
+// of ~1.3 sec, 512 = 2.6 sec, and 1024 just over 5 sec.
 #if defined(__AVR_AT90USB1286__)
   // the teensy 2.0++ (1286) has 8092 bytes of SRAM
   #define BUFF_SIZE_BITS 10
@@ -81,7 +96,7 @@ ser.close()
   // Teensy2.0 has LED on pin 11
   #define LEDPIN 11
   // uart rx is D2, tx is D3
-    // Pin definitions for the OLED graphical display
+  // Pin definitions for the OLED graphical display
   #define OLED_DC 11
   #define OLED_RESET 13
   #define OLED_SS 0
@@ -89,7 +104,8 @@ ser.close()
   #define OLED_MOSI 2
 #else
   #define BUFF_SIZE_BITS 8
-    // Pin definitions for the OLED graphical display
+  #define LEDPIN 13
+  // Pin definitions for the OLED graphical display
   #define OLED_DC 11
   #define OLED_RESET 13
   #define OLED_SS 12
@@ -120,7 +136,7 @@ dataPacket g_data;
 int g_dataBuffer[BUFF_SIZE];
 int g_diffBuffer[BUFF_SIZE];
 long g_dataSum;
-unsigned long g_diffSum;
+unsigned long g_sumSquares;
 int g_thresh;
 unsigned int g_curBuffIndex;
 byte g_verbose;
@@ -294,12 +310,12 @@ int processDataPacket(){
   int dataMean = g_dataSum>>BUFF_SIZE_BITS;
   // Now we can do the diff:
   // *** TO DO: check for overflow!
-  g_diffSum -= g_diffBuffer[g_curBuffIndex];
+  g_sumSquares -= g_diffBuffer[g_curBuffIndex];
   g_diffBuffer[g_curBuffIndex] = SQUARE(curDataVal - dataMean);
-  g_diffSum += g_diffBuffer[g_curBuffIndex];
+  g_sumSquares += g_diffBuffer[g_curBuffIndex];
   // Now check to see if the output should be pulsed:
   int diff = (g_data.ppg-dataMean)*ZSCALE;
-  int stdev = isqrt(g_diffSum>>BUFF_SIZE_BITS);
+  int stdev = isqrt(g_sumSquares>>BUFF_SIZE_BITS);
   int zscore = diff/stdev;
   // Limit to 9 SDs
   if(zscore>9*ZSCALE) zscore = 9*ZSCALE;
