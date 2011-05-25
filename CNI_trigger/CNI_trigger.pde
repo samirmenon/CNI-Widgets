@@ -97,7 +97,7 @@ void messageReady() {
       Serial << F("\nCommands:\n");
       Serial << F("[t]   will send a trigger pulse. This also disables the input pulse\n");
       Serial << F("      detection. Send a [p] command to re-enable it.\n\n");
-      Serial << F("[0,N] set the output pulse duration to N milliseconds. Send with\n");
+      Serial << F("[o,N] set the output pulse duration to N milliseconds. Send with\n");
       Serial << F("      no argument to show the current pulse duration.\n\n");
       Serial << F("[p]   enable input pulse detection. Send a [t] to disable.\n\n");
       Serial << F("[r]   reset default state.\n\n");
@@ -123,8 +123,8 @@ void messageReady() {
       break;
 
     case 'p': // turn on input pulse detection
+      //Serial << F("Enabling input pulses\n");
       setInPulseState(1);
-      Serial << F("Input-pulse detection enabled.\n");
       break;
 
     case 'r': // reset
