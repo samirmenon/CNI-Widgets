@@ -58,9 +58,13 @@ ser.close()
 */
 
 #include <Flash.h>
+#include <Messenger.h>
 #include <SSD1306.h>
 
-#define VERSION "0.1"
+#define VERSION "0.9"
+
+#define DEFAULT_OUT_PULSE_MSEC 5
+#define DEFAULT_PHYSIO_OUT_STATE 0
 
 #define SQUARE(a) ((a)*(a))
 
@@ -71,8 +75,11 @@ ser.close()
 // The data interval is not measured, but assumed. Maybe we could measure it?
 // Perhaps even just measure it once at the beginning to confirm the value set here?
 #define DATA_INTERVAL_MILLISEC 5
+// instantaneous bps = 1000/pulseIntervalMillisec,
+// bpm = 60000/pulseIntervalMillisec = (60000/DATA_INTERVAL_MILLISEC)/pulseIntervalTics
+#define BPM_SCALE (60000/DATA_INTERVAL_MILLISEC)
 // The minimal silent period that we will use to detect the start of a new packet:
-#define DATA_SILENCE_MILLISEC 2
+#define DATA_SILENCE_MICROSEC 5
 
 // We need to be careful that our two buffers will fit in available SRAM. We 
 // also want them to be a power of two so that we can use bit-shifting for division. 
@@ -82,11 +89,12 @@ ser.close()
   // the teensy 2.0++ (1286) has 8092 bytes of SRAM
   #define BUFF_SIZE_BITS 10
   // Teensy2.0++ has LED on D6
-  #define LEDPIN 6
+  #define PULSE_OUT_PIN 6
+  #define TRIGGER_OUT_PIN 5
   // uart rx is D2, tx is D3
   // Pin definitions for the OLED graphical display
-  #define OLED_DC 11
-  #define OLED_RESET 13
+  #define OLED_DC 24
+  #define OLED_RESET 25
   #define OLED_SS 20
   #define OLED_CLK 21
   #define OLED_MOSI 22
@@ -94,7 +102,8 @@ ser.close()
   // teensy 2.0 (mega32) has 2560 bytes of SRAM. Enough for 2048 in buffers.
   #define BUFF_SIZE_BITS 9
   // Teensy2.0 has LED on pin 11
-  #define LEDPIN 11
+  #define PULSE_OUT_PIN 11
+  #define TRIGGER_OUT_PIN 10
   // uart rx is D2, tx is D3
   // Pin definitions for the OLED graphical display
   #define OLED_DC 11
@@ -104,7 +113,8 @@ ser.close()
   #define OLED_MOSI 2
 #else
   #define BUFF_SIZE_BITS 8
-  #define LEDPIN 13
+  #define PULSE_OUT_PIN 13
+  #define TRIGGER_OUT_PIN 14
   // Pin definitions for the OLED graphical display
   #define OLED_DC 11
   #define OLED_RESET 13
@@ -139,28 +149,104 @@ long g_dataSum;
 unsigned long g_sumSquares;
 int g_thresh;
 unsigned int g_curBuffIndex;
-byte g_verbose;
 unsigned int g_lastPulseTic;
-unsigned int g_refractoryMillis;
+unsigned int g_refractoryTics;
 byte g_refreshFrames;
 byte g_numConsecutiveZscores;
+
+// The approximate duration of the output pulse, in milliseconds.
+// Note that we don't account for delays in the code, so it will 
+// always be a bit longer than this.
+unsigned int g_outPinDuration = DEFAULT_OUT_PULSE_MSEC;
+byte g_physioOutFlag = DEFAULT_PHYSIO_OUT_STATE;
+
+byte g_triggerPinOn, g_pulsePinOn;
+unsigned long g_triggerOutStart, g_pulseOutStart;
 
 // Object to access the hardware serial port:
 HardwareSerial g_Uart = HardwareSerial();
 
-void setup()
-{
+
+// Instantiate Messenger object used for serial port communication.
+Messenger g_message = Messenger(',','[',']');
+
+// Create the Message callback function. This function is called whenever a complete 
+// message is received on the serial port.
+void messageReady() {
+  int val[10];
+  byte i = 0;
+  if(g_message.available()) {
+    // get the command byte
+    char command = g_message.readChar();
+    switch(command) {
+    
+    case '?': // display help text
+      Serial << F("CNI TPhysMon\n");
+      Serial << F("Monitors GE physio data stream coming in on UART.\n");
+      Serial << F("Pulses are output on pin ") << (int)PULSE_OUT_PIN << F(".\n");
+      Serial << F("Sends TTL pulses out on pin ") << (int)TRIGGER_OUT_PIN << F(".\n");
+      Serial << F("\nCommands:\n");
+      Serial << F("[t]   will send a trigger pulse.\n\n");
+      Serial << F("[o,N] set the output pulse duration to N milliseconds. Send with\n");
+      Serial << F("      no argument to show the current pulse duration.\n\n");
+      Serial << F("[p,0|1]   disable/enable physio output.\n\n");
+      Serial << F("[r]   reset default state.\n\n");
+      break;
+      
+    case 'o': // Set out-pulse duration (msec)
+      while(g_message.available()) val[i++] = g_message.readInt();
+      if(i>1){
+        Serial << F("ERROR: Set output pulse duration requires no more than one param.\n");
+      }else if(i==1){
+          g_outPinDuration = val[0];
+      }
+      Serial << F("Output pulse duration is set to ") << g_outPinDuration << F(" msec.\n");
+      break;
+ 
+    case 't': // force output trigger
+      // First force the pin low, in case it was already on. This will ensure that
+      // we get a change on the pin no matter what state we were in.
+      if(g_triggerPinOn) digitalWrite(TRIGGER_OUT_PIN, LOW);
+      triggerOut();
+      break;
+
+    case 'p': // enable/disable physio output
+      while(g_message.available()) val[i++] = g_message.readInt();
+      if(i>1){
+        Serial << F("ERROR: Set physio output state requires no more than one param.\n");
+      }else if(i==1){
+          g_physioOutFlag = val[0];
+      }else{
+        Serial << F("Physio state is set to ") << g_physioOutFlag << F(" msec.\n");
+      }
+      break;
+
+    case 'r': // reset
+      g_physioOutFlag = DEFAULT_PHYSIO_OUT_STATE;
+      g_outPinDuration = DEFAULT_OUT_PULSE_MSEC;
+      digitalWrite(TRIGGER_OUT_PIN, LOW);
+      break;
+
+    default:
+      Serial << F("[") << command << F("]\n");
+      Serial << F("ERROR: Unknown command.\n\n");
+    } // end switch
+  } // end while
+}
+
+
+void setup(){
+  
   // The threshold is in scaled z-score units
   g_thresh = 1.5*ZSCALE;
   g_numConsecutiveZscores = 3;
-  g_refractoryMillis = 300;
+  g_refractoryTics = 300/DATA_INTERVAL_MILLISEC;
   g_refreshFrames = 3;
   g_curBuffIndex = 0;
-  g_verbose = 0;
   
   // initialize the digital LED pin as an output.
-  pinMode(LEDPIN, OUTPUT);
-  digitalWrite(LEDPIN, LOW);
+  pinMode(PULSE_OUT_PIN, OUTPUT);
+  digitalWrite(PULSE_OUT_PIN, LOW);
   
   // Initialize the OLED display
   // Configure to generate the high voltage from 3.3v
@@ -178,6 +264,10 @@ void setup()
   Serial << F("*********************************************************\n\n");
   Serial << F("Initialized with ") << BUFF_SIZE << F(" element buffers. (") << freeRam() << F(" SRAM bytes free).\n\n");
 
+  // Attach the callback function to the Messenger
+  g_message.attach(messageReady);
+  Serial << F("CNI PhysMon Ready. Send the ? command ([?]) for help.\n\n");
+
   // Keep the splash screen and add a little animation until we get some data
   while(g_Uart.available()<1){
     oled.drawchar(120, 7, ' ');
@@ -191,109 +281,97 @@ void setup()
   }
   oled.clear();
   oled.display();
+  
 }
 
-
 void loop(){
-  // We need to keep track of the current x,y data value. 0,0 is at the
-  // upper left, so we want to flip Y and thus initialize by the height,
-  // which is the bottom of the display.
-  static byte curX;
-  static byte curY = SSD1306_LCDHEIGHT;
-  // Need a buffer for the line of text that we show at the top.
+  // Need a buffer for the line of text that we show.
   static char stringBuffer[SSD1306_LCDLINEWIDTH+1];
-  // Also keep track of the tic value of the last data packet that we received.
-  static unsigned int prevTic;
-  // The current data frame. Used to know when we are due for a display refresh.
-  static byte curRefreshFrame;
+
   // We only fire an output when we get some number of zscores above threshold.
-  static int curNumZscores;
-  
-  unsigned int bpm;
-  
-  // Make sure the output pin is low.
-  digitalWrite(LEDPIN, LOW);
+  static byte curNumZscores;
+  byte bpm;
  
-  getDataPacket();
-  // Compare current tic to last tic-- it should be incremented by 1 or wrapped 
-  // to 0. If not, then something went wrong; discard this packet and try to resync.
-  byte resyncNow = 0;
-  unsigned int ticDiff = g_data.tic-prevTic;
-  if(ticDiff<1||ticDiff>2){
-    Serial << F("Resync...\n");
-    resyncNow = 1;
-    resync();
-    getDataPacket();
+  unsigned int ticDiff = getDataPacket();
+  if(ticDiff==9){
     snprintf(stringBuffer,SSD1306_LCDLINEWIDTH+1,"* resyncing packets...");
-  }
-  
-  // Got something, now process it.
-  unsigned int pulseIntervalMillisec = (g_data.tic - g_lastPulseTic)*DATA_INTERVAL_MILLISEC;
-  int zscore = processDataPacket();
-  if(zscore>g_thresh && pulseIntervalMillisec>g_refractoryMillis)
-    curNumZscores++;
-  
-  if((curNumZscores>g_numConsecutiveZscores)){
-    digitalWrite(LEDPIN, HIGH);   // set the LED on
-    // instantaneous bps = 1000/pulseDiffMillisec, bpm = 60000/pulseIntervalMillisec
-    bpm = 60000 / pulseIntervalMillisec;
-    g_lastPulseTic = g_data.tic;
-    //Serial << F("ticDiff=") << ticDiff << F(", ") << bpm << F(" BPM\n");
-    // Display is 21 chars wide
-    if(resyncNow)
-      snprintf(stringBuffer, SSD1306_LCDLINEWIDTH+1, "* z*%d=%02d bpm=%03d     ",ZSCALE,zscore,bpm);
-    else
+    refreshDisplay(0, stringBuffer, 255, 0);
+  }else if(ticDiff>0){
+    // Got something, now process it.
+    unsigned int pulseIntervalTics = g_data.tic - g_lastPulseTic;
+    int zscore = processDataPacket();
+    if(zscore>g_thresh && pulseIntervalTics>g_refractoryTics)
+      curNumZscores++;
+
+    if((curNumZscores>g_numConsecutiveZscores)){
+      // PULSE DETECTED!
+      bpm = pulseOut(pulseIntervalTics);
       snprintf(stringBuffer, SSD1306_LCDLINEWIDTH+1, "%d z*%d=%02d bpm=%03d     ",ticDiff,ZSCALE,zscore,bpm);
-    oled.drawline(curX, 10, curX, 14, WHITE);
-    // Reset the consec counter
-    curNumZscores = 0;
-  }
-  
-  // CurY will contain an average z-score across the g_refreshFrames number of frames.
-  curY -= zscore/g_refreshFrames;
-  if(curRefreshFrame>g_refreshFrames){ 
-    // Update the running plot
-    // Clear the graph just in front of the current x position:
-    oled.fillrect(curX+1, 8, 16, SSD1306_LCDHEIGHT-8, BLACK);
-    // Clip the y-values to the plot area (SSD1306_LCDHEIGHT-1 at the bottom to 16 at the top)
-    if(curY>SSD1306_LCDHEIGHT-1) curY = SSD1306_LCDHEIGHT-1;
-    else if(curY<16) curY = 16;
-    // Plot the pixel for the current data point
-    oled.setpixel(curX, curY, WHITE);
-    // Reset the y-position accumulator:
-    curY = SSD1306_LCDHEIGHT-1;
-    // Increment x, and check for wrap-around
-    curX++;
-    if(curX>=SSD1306_LCDWIDTH){
-      curX = 0;
-      // If we have wrapped around, we need to clear the first row.
-      oled.drawrect(0, 8, 1, SSD1306_LCDHEIGHT-8, BLACK);
+      curNumZscores = 0;
+    }  
+    if(g_physioOutFlag){
+      Serial << g_data.tic << F(", ") << g_data.ppg << F(", ") << g_data.resp << F(", z=") << zscore << F("/") << ZSCALE;
+      if(curNumZscores>g_numConsecutiveZscores) Serial << F("*");
+      Serial << F("\n");
     }
-    curRefreshFrame = 0;
+    refreshDisplay(zscore, stringBuffer, ticDiff, g_pulsePinOn);
   }
-  // Draw the status string at the top:
-  oled.drawstring(0, 0, stringBuffer);
-  // Finished drawing the the buffer; copy it to the device:
-  oled.display();
   
-  if(g_verbose){
-    Serial << g_data.tic << F(", ") << g_data.ppg << F(", ") << g_data.resp << F(", z=") << zscore << F("/") << ZSCALE;
-    if(zscore>g_thresh) Serial << F("****");
-    Serial << F("\n");
-  }
-  curRefreshFrame += ticDiff;
-  prevTic = g_data.tic;
+  updateOutPins();
+  
+  // Handle Messenger's callback:
+  if(Serial.available())  g_message.process(Serial.read());
 }
 
 // Get the incomming data packet.
-// Blocks until a full data packet is received.
-void getDataPacket(){
-  // Wait until all the bytes have arrived:
-  while(g_Uart.available()<12) 
-    delay(1);
-  for(byte i=0; i<12; i++){
-    g_data.byteArray[i] = g_Uart.read();
+// Returns 0 if no data were ready, 9 if we received corrupt data and had to resync,
+// or the actual tic difference between this packet and the previous packet (should
+// be 1, but might be 2 if our main loop is running slow).
+byte getDataPacket(){
+  // Keep track of the tic value of the last data packet that we received.
+  static unsigned int prevTic;
+  static unsigned int ticDiff;
+  // If we don't have our bytes, we return immediately.
+  if(g_Uart.available()<12){
+    return(0);
+  }else{
+    for(byte i=0; i<12; i++)
+      g_data.byteArray[i] = g_Uart.read();
+    
+    if(ticDiff==9){
+      // To avoid getting stuck after a resync, we only check ticDiff for a valid increment if
+      // the previous cycle was NOT a resync. ticDiff==9 means the previous cycle was a resync.
+      ticDiff = g_data.tic-prevTic;
+      return(ticDiff);
+    }else{
+      // Compare current tic to last tic, resync if tic is not incremented by 1 or 2.
+      ticDiff = g_data.tic-prevTic;
+      if(ticDiff<1 || ticDiff>2){
+        resync();
+        return(9);
+      }
+    }
   }
+}
+
+// Resync to the incomming serial stream by waiting for 
+// the dead time between data packets.
+// 
+// flush to clear input buffer
+// loop, timing the interval between bytes until it exceeds the threshold.
+// Note that this function will block until it hits a silent period in the serial stream.
+void resync(){
+  unsigned long startUsec;
+  // Start fresh:
+  g_Uart.flush();
+  // Wait for the next silent period. Doing this on every iteration will ensure 
+  // that we stay in sync with data packets. 
+  startUsec = micros();
+  while(micros()-startUsec < DATA_SILENCE_MICROSEC && g_Uart.available()){
+    byte junk = g_Uart.read();
+  }
+  // If we got here, then there was a silent period > DATA_SILENCE_MICROSEC, 
+  // so we should be in sync for the next data packet.
 }
 
 // Process the current data packet. This involves loading up the buffers and
@@ -325,24 +403,83 @@ int processDataPacket(){
   return(zscore);
 }
 
-// Resync to the incomming serial stream by waiting for 
-// the dead time between data packets.
-// 
-// flush to clear input buffer
-// loop, timing the interval between bytes until it exceeds the threshold (2ms?)
-void resync(){
-  unsigned long startUsec;
-  // Start fresh:
-  g_Uart.flush();
-  // Wait for the next silent period. Doing this on every iteration will ensure 
-  // that we stay in sync with data packets. 
-  startUsec = micros();
-  while(micros()-startUsec < DATA_SILENCE_MILLISEC && g_Uart.available()){
-    byte junk = g_Uart.read();
+// Refresh the display, if we are due for a refresh. Otherwise, return immediately.
+void refreshDisplay(int zscore, char *stringBuffer, byte ticDiff, byte pulseOut){
+  // We need to keep track of the current x,y data value. 0,0 is at the
+  // upper left, so we want to flip Y and thus initialize by the height,
+  // which is the bottom of the display.
+  static byte curX;
+  static byte curY = SSD1306_LCDHEIGHT;
+  // The current data frame. Used to know when we are due for a display refresh.
+  static byte curRefreshFrame;
+  
+  curRefreshFrame += ticDiff;
+
+  // CurY will contain an average z-score across the g_refreshFrames number of frames.
+  curY -= zscore/g_refreshFrames;
+  if(pulseOut)
+    oled.drawline(curX, 10, curX, 14, WHITE);
+  if(curRefreshFrame>g_refreshFrames){ 
+    // Update the running plot
+    // Clear the graph just in front of the current x position:
+    oled.fillrect(curX+1, 8, 16, SSD1306_LCDHEIGHT-8, BLACK);
+    // Clip the y-values to the plot area (SSD1306_LCDHEIGHT-1 at the bottom to 16 at the top)
+    if(curY>SSD1306_LCDHEIGHT-1) curY = SSD1306_LCDHEIGHT-1;
+    else if(curY<16) curY = 16;
+    // Plot the pixel for the current data point
+    oled.setpixel(curX, curY, WHITE);
+    // Reset the y-position accumulator:
+    curY = SSD1306_LCDHEIGHT-1;
+    // Increment x, and check for wrap-around
+    curX++;
+    if(curX>=SSD1306_LCDWIDTH){
+      curX = 0;
+      // If we have wrapped around, we need to clear the first row.
+      oled.drawrect(0, 8, 1, SSD1306_LCDHEIGHT-8, BLACK);
+    }
+    // Draw the status string at the top:
+    oled.drawstring(0, 0, stringBuffer);
+    // Finished drawing the the buffer; copy it to the device:
+    oled.display();
+    curRefreshFrame = 0;
   }
-  // If we got here, then there was a silent period > DATA_SILENCE_MILLISEC, 
-  // so we should be all set for the next data packet.
 }
+
+void updateOutPins(){
+  // Turn off the output pins after the requested duration.
+  unsigned long curMillis = millis();
+  
+  if(g_triggerPinOn){
+    // Detect and correct counter wrap-around:
+    if(curMillis<g_triggerOutStart) g_triggerOutStart += 4294967295UL;
+    // Pull it low if the duration has passed
+    if(curMillis-g_triggerOutStart > g_outPinDuration)
+      digitalWrite(TRIGGER_OUT_PIN, LOW);
+  }
+  
+  if(g_pulsePinOn){
+    // Detect and correct counter wrap-around:
+    if(curMillis<g_pulseOutStart) g_pulseOutStart += 4294967295UL;
+    // Pull it low if the duration has passed
+    if(curMillis-g_pulseOutStart > g_outPinDuration)
+      digitalWrite(PULSE_OUT_PIN, LOW);
+  }
+}
+
+void triggerOut(){
+    digitalWrite(TRIGGER_OUT_PIN, HIGH);
+    g_triggerPinOn = true;
+    g_triggerOutStart = millis();
+}
+
+byte pulseOut(unsigned int pulseIntervalTics){
+  digitalWrite(PULSE_OUT_PIN, HIGH);
+  g_pulsePinOn = true;
+  g_pulseOutStart = millis();
+  g_lastPulseTic = g_data.tic;
+  return(BPM_SCALE / pulseIntervalTics);
+}
+
 
 /*
  * Integer square-root approximation, by Jim Ulery. 

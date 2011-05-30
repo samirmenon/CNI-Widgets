@@ -106,8 +106,8 @@ void messageReady() {
     case 'o': // Set out-pulse duration (msec)
       while(g_message.available()) val[i++] = g_message.readInt();
       if(i>1){
-        Serial << F("ERROR: Set output pulse duration requires no more than param.\n");
-      }else{
+        Serial << F("ERROR: Set output pulse duration requires no more than one param.\n");
+      }else if(i==1){
           g_outPulseDuration = val[0];
       }
       Serial << F("Output pulse duration is set to ") << g_outPulseDuration << F(" msec.\n");
