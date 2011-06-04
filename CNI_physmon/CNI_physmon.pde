@@ -95,6 +95,9 @@ ser.close()
   // Teensy2.0++ has LED on D6
   #define PULSE_OUT_PIN 6
   #define TRIGGER_OUT_PIN 5
+  #define LED_RED_PIN 1
+  #define LED_GRN_PIN 0
+  #define LED_BLU_PIN 27
   // uart rx is D2, tx is D3
   // Pin definitions for the OLED graphical display
   #define OLED_DC 24
@@ -108,6 +111,9 @@ ser.close()
   // Teensy2.0 has LED on pin 11
   #define PULSE_OUT_PIN 11
   #define TRIGGER_OUT_PIN 10
+  #define LED_RED_PIN 12
+  #define LED_GRN_PIN 14
+  #define LED_BLU_PIN 15
   // uart rx is D2, tx is D3
   // Pin definitions for the OLED graphical display
   #define OLED_DC 11
@@ -119,6 +125,9 @@ ser.close()
   #define BUFF_SIZE_BITS 8
   #define PULSE_OUT_PIN 13
   #define TRIGGER_OUT_PIN 14
+  #define LED_RED_PIN 5
+  #define LED_GRN_PIN 6
+  #define LED_BLU_PIN 7
   // Pin definitions for the OLED graphical display
   #define OLED_DC 11
   #define OLED_RESET 13
@@ -310,7 +319,18 @@ void setup(){
   // Configure it to generate the high voltage from 3.3v
   oled.ssd1306_init(SSD1306_SWITCHCAPVCC);
   oled.display(); // show splashscreen
-  delay(1000);
+  for(byte i=0; i<255; i++){
+    analogWrite(LED_RED_PIN, i);
+    analogWrite(LED_GRN_PIN, i);
+    analogWrite(LED_BLU_PIN, i);
+    delay(2);
+  }
+  for(byte i=255; i>0; i--){
+    analogWrite(LED_RED_PIN, i);
+    analogWrite(LED_GRN_PIN, i);
+    analogWrite(LED_BLU_PIN, i);
+    delay(2);
+  }
 
   g_Uart.begin(115200);
     
