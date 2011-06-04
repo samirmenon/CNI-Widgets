@@ -24,9 +24,6 @@
  * 
  */
 
-char mac[13] = "0013EF00315C";
-
-
 #if defined(__AVR_AT90USB1286__)
 // Teensy2.0++ has LED on D6
 #define LED 6

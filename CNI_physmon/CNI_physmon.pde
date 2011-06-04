@@ -61,7 +61,7 @@ ser.close()
 #include <Messenger.h>
 #include <SSD1306.h>
 
-#define VERSION "0.9"
+#define VERSION "1.0"
 
 #define SQUARE(a) ((a)*(a))
 
@@ -95,6 +95,8 @@ ser.close()
   // Teensy2.0++ has LED on D6
   #define PULSE_OUT_PIN 6
   #define TRIGGER_OUT_PIN 5
+  #define TRIGGER_IN_PIN 18  // INT6 (pin E6)
+  #define TRIGGER_IN_INT 6
   #define LED_RED_PIN 1
   #define LED_GRN_PIN 0
   #define LED_BLU_PIN 27
@@ -111,6 +113,8 @@ ser.close()
   // Teensy2.0 has LED on pin 11
   #define PULSE_OUT_PIN 11
   #define TRIGGER_OUT_PIN 10
+  #define TRIGGER_IN_PIN ?
+  #define TRIGGER_IN_INT ?
   #define LED_RED_PIN 12
   #define LED_GRN_PIN 14
   #define LED_BLU_PIN 15
@@ -125,6 +129,8 @@ ser.close()
   #define BUFF_SIZE_BITS 8
   #define PULSE_OUT_PIN 13
   #define TRIGGER_OUT_PIN 14
+  #define TRIGGER_IN_PIN ?
+  #define TRIGGER_IN_INT ?
   #define LED_RED_PIN 5
   #define LED_GRN_PIN 6
   #define LED_BLU_PIN 7
@@ -345,21 +351,9 @@ void setup(){
   // Attach the callback function to the Messenger
   g_message.attach(messageReady);
   Serial << F("CNI PhysMon Ready. Send the ? command ([?]) for help.\n\n");
-
-  /*
-  while(g_Uart.available()<1){
-    oled.drawchar(120, 7, ' ');
-    oled.drawchar(120, 7, '\\');
-    oled.display();
-    delay(100);
-    oled.drawchar(120, 7, ' ');
-    oled.drawchar(120, 7, '/');
-    oled.display();
-    delay(100);
-  }
-  oled.clear();
-  oled.display();
-  */
+  analogWrite(LED_RED_PIN, 0);
+  analogWrite(LED_GRN_PIN, 0);
+  analogWrite(LED_BLU_PIN, 0);
 }
 
 void loop(){
@@ -519,6 +513,8 @@ void refreshDisplay(int zscore, char *stringBuffer, byte ticDiff, byte pulseOut)
     else if(curY<16) curY = 16;
     // Plot the pixel for the current data point
     oled.setpixel(curX, curY, WHITE);
+    // Update the blue LED
+    analogWrite(LED_BLU_PIN, curY<SSD1306_LCDHEIGHT ? (SSD1306_LCDHEIGHT-1-curY)*2 : 0);
     // Reset the y-position accumulator:
     curY = SSD1306_LCDHEIGHT-1;
     // Increment x, and check for wrap-around
@@ -544,27 +540,33 @@ void updateOutPins(){
     // Detect and correct counter wrap-around:
     if(curMillis<g_triggerOutStart) g_triggerOutStart += 4294967295UL;
     // Pull it low if the duration has passed
-    if(curMillis-g_triggerOutStart > g_outPinDuration)
+    if(curMillis-g_triggerOutStart > g_outPinDuration){
       digitalWrite(TRIGGER_OUT_PIN, LOW);
+      analogWrite(LED_RED_PIN, 0);
+    }
   }
   
   if(g_pulsePinOn){
     // Detect and correct counter wrap-around:
     if(curMillis<g_pulseOutStart) g_pulseOutStart += 4294967295UL;
     // Pull it low if the duration has passed
-    if(curMillis-g_pulseOutStart > g_outPinDuration)
+    if(curMillis-g_pulseOutStart > g_outPinDuration){
       digitalWrite(PULSE_OUT_PIN, LOW);
+      analogWrite(LED_GRN_PIN, 0);
+    }
   }
 }
 
 void triggerOut(){
     digitalWrite(TRIGGER_OUT_PIN, HIGH);
+    analogWrite(LED_RED_PIN, 255);
     g_triggerPinOn = true;
     g_triggerOutStart = millis();
 }
 
 byte pulseOut(unsigned int pulseIntervalTics){
   digitalWrite(PULSE_OUT_PIN, HIGH);
+  analogWrite(LED_GRN_PIN, 80);
   g_pulsePinOn = true;
   g_pulseOutStart = millis();
   g_lastPulseTic = g_data.tic;

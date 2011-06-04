@@ -5,7 +5,8 @@
 // license free.
 //
 // * Connect BlueSMiRF RX and TX to Serial on Arduino board (pins 0 & 1)
-// * Connect BlueSMiRF VCC to the pin corresponding to BLUESMIRFON
+// * Connect BlueSMiRF VCC to VCC (+5v) and GND to GND. BlueSMiRF RTS should
+// * be connected directly to the BlueSMiRF CTS line with a jumper.
 // * 
 ////////////////////////////////////////////////////////////////////////
 
@@ -60,9 +61,6 @@ void setup()
   delay(1000);
   pinMode(BLUESMIRFON, OUTPUT);
   
-  Serial.begin(9600);
-  Serial.println("Starting...");
-
   // First reset to factory defaults
   while (!success) {
     RunBlueSmirfSetup(true);
@@ -103,13 +101,11 @@ void RunBlueSmirfSetup(boolean factoryReset) {
     btSerial.begin(DEFAULTBAUD);   
   }   
 
-  Serial.println("On");
   digitalWrite(BLUESMIRFON, LOW);
   delay(2000);
   digitalWrite(BLUESMIRFON, HIGH);  
   delay(2000);			        //Wait for BlueSMIRF to turn on
   
-  Serial.println("Prog mode");
   btSerial.print('$');			//Send command to put BlueSMIRF into programming mode
   btSerial.print('$');
   btSerial.print('$');
@@ -119,7 +115,6 @@ void RunBlueSmirfSetup(boolean factoryReset) {
   
    //Reset the module
   if (factoryReset) {
-    Serial.println("Reset");
     btSerial.print('S');
     btSerial.print('F');
     btSerial.print(',');
@@ -139,7 +134,6 @@ void RunBlueSmirfSetup(boolean factoryReset) {
     delay(100);
     btSerial.flush();
   } else {
-    Serial.println("Baud");
     //Set the baudrate
     btSerial.print('S');
     btSerial.print('U');
@@ -162,7 +156,6 @@ void RunBlueSmirfSetup(boolean factoryReset) {
     btSerial.flush();
     
     //Set the remote MAC address
-    Serial.println("MAC");
     btSerial.print('S');
     btSerial.print('R');
     btSerial.print(',');
@@ -185,7 +178,6 @@ void RunBlueSmirfSetup(boolean factoryReset) {
     btSerial.flush();
     
     //Set the passkey
-    Serial.println("Passkey");
     btSerial.print('S');
     btSerial.print('P');
     btSerial.print(',');
@@ -208,7 +200,6 @@ void RunBlueSmirfSetup(boolean factoryReset) {
     btSerial.flush(); 
     
     //Set the BlueSMiRF mode
-    Serial.println("Mode");
     btSerial.print('S');
     btSerial.print('M');
     btSerial.print(',');
@@ -231,7 +222,6 @@ void RunBlueSmirfSetup(boolean factoryReset) {
     delay(100);
     //Exit command mode
   }
-  Serial.println("Exit");
   btSerial.print('-');
   btSerial.print('-');
   btSerial.print('-');
