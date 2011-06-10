@@ -76,7 +76,7 @@ ser.close()
 // bpm = 60000/pulseIntervalMillisec = (60000/DATA_INTERVAL_MILLISEC)/pulseIntervalTics
 #define BPM_SCALE (60000/DATA_INTERVAL_MILLISEC)
 // The minimal silent period that we will use to detect the start of a new packet:
-#define DATA_SILENCE_MICROSEC 10
+#define DATA_SILENCE_MILLISEC 1
 
 #define DEFAULT_OUT_PULSE_MSEC 5
 #define DEFAULT_PHYSIO_OUT_STATE 0
@@ -84,6 +84,8 @@ ser.close()
 #define DEFAULT_NUM_CONSEC_Z 3
 #define DEFAULT_REFRACTORY_TICS (300/DATA_INTERVAL_MILLISEC)
 #define DEFAULT_REFRESH_INTERVAL 3
+#define DEFAULT_IN_STATE 0
+#define DEFAULT_IN_EDGE FALLING
 
 // We need to be careful that our two buffers will fit in available SRAM. We 
 // also want them to be a power of two so that we can use bit-shifting for division. 
@@ -93,7 +95,7 @@ ser.close()
   // the teensy 2.0++ (1286) has 8092 bytes of SRAM
   #define BUFF_SIZE_BITS 10
   // Teensy2.0++ has LED on D6
-  #define PULSE_OUT_PIN 6
+  #define PULSE_OUT_PIN 4
   #define TRIGGER_OUT_PIN 5
   #define TRIGGER_IN_PIN 18  // INT6 (pin E6)
   #define TRIGGER_IN_INT 6
@@ -178,6 +180,7 @@ byte g_numConsecutiveZscores;
 // always be a bit longer than this.
 unsigned int g_outPinDuration = DEFAULT_OUT_PULSE_MSEC;
 byte g_physioOutFlag = DEFAULT_PHYSIO_OUT_STATE;
+byte g_inPulseEdge = DEFAULT_IN_EDGE;
 
 // Flags to remember if the output pins are currently turned on
 byte g_triggerPinOn, g_pulsePinOn;
@@ -257,6 +260,16 @@ void messageReady() {
             Serial << F("Pulse refractory period is set to ") << g_refractoryTics*DATA_INTERVAL_MILLISEC 
                    << F(" msec (") << g_refractoryTics << F(" tics).\n");
           break;
+          
+        case 'p': // enable/disable input pulse detection
+          if(i==1){
+            if(val[0]==0 || val[0]==1)
+              setInTriggerState(val[0]);
+            else
+              Serial << F("ERROR: in trigger state = [0|1].");
+          }else
+            Serial << F("ERROR: Set in trigger state requires one param.\n");
+        break;
 
         case 'z': // Set z-score threshold
           if(i==1)
@@ -320,7 +333,14 @@ void setup(){
   // initialize output pins.
   pinMode(PULSE_OUT_PIN, OUTPUT);
   digitalWrite(PULSE_OUT_PIN, LOW);
+  pinMode(TRIGGER_OUT_PIN, OUTPUT);
+  digitalWrite(TRIGGER_OUT_PIN, LOW);
   
+  // Initialize input pin
+  // This probably isn't necessary- external interrupts work even in OUTPUT mode. 
+  pinMode(TRIGGER_IN_PIN, INPUT);
+  setInTriggerState(DEFAULT_IN_STATE);
+
   // Initialize the OLED display
   // Configure it to generate the high voltage from 3.3v
   oled.ssd1306_init(SSD1306_SWITCHCAPVCC);
@@ -364,7 +384,11 @@ void loop(){
   static byte curNumZscores;
   static byte bpm;
  
-  unsigned int ticDiff = getDataPacket();
+  // ticDiff is the increment in the tic count between this data packet and the previous one.
+  // This function sets the data in the global g_data.
+  // MAYBE PASS IN THE GLOBAL FOR CLARITY? OR JUST INLINE THE CODE?
+  byte ticDiff = getDataPacket();
+  
   if(ticDiff==255){
     // This means that we had to resync. We don't process anything, just show status.
     snprintf(stringBuffer,SSD1306_LCDLINEWIDTH+1,"* resyncing packets...");
@@ -429,8 +453,8 @@ byte getDataPacket(){
       // To avoid getting stuck after a resync, we only check ticDiff for a valid increment if
       // the previous cycle was NOT a resync.
       ticDiff = 255;
-      resynced = true;
       resync();
+      resynced = true;
     }else{
       resynced = false; 
     }
@@ -446,17 +470,12 @@ byte getDataPacket(){
 // loop, timing the interval between bytes until it exceeds the threshold.
 // Note that this function will block until it hits a silent period in the serial stream.
 void resync(){
-  unsigned long startUsec;
-  // Start fresh:
   g_Uart.flush();
-  // Wait for the next silent period. Doing this on every iteration will ensure 
-  // that we stay in sync with data packets. 
-  startUsec = micros();
-  while(micros()-startUsec < DATA_SILENCE_MICROSEC || g_Uart.available()){
-    byte junk = g_Uart.read();
-  }
-  // If we got here, then there was a silent period > DATA_SILENCE_MICROSEC, 
-  // so we should be in sync for the next data packet.
+  // Wait for the next silent period:
+  byte numBytesAvail = g_Uart.available();
+  do{
+    delay(DATA_SILENCE_MILLISEC);
+  }while(g_Uart.available()>numBytesAvail);
 }
 
 // Process the current data packet. This involves loading up the buffers and
@@ -572,6 +591,29 @@ byte pulseOut(unsigned int pulseIntervalTics){
   g_lastPulseTic = g_data.tic;
   return(BPM_SCALE / pulseIntervalTics);
 }
+
+void setInTriggerState(byte state){
+  // Turn on the internal pull-up resistor if we want to detect falling edges.
+  if(g_inPulseEdge==FALLING)
+    digitalWrite(TRIGGER_IN_PIN, HIGH);
+  else
+    digitalWrite(TRIGGER_IN_PIN, LOW);
+  // Attach or detach the interrupt
+  if(state)
+    attachInterrupt(TRIGGER_IN_INT, triggerIn, g_inPulseEdge);
+  else
+    detachInterrupt(TRIGGER_IN_INT);
+}
+
+// The following is an interrupt routine that is run each time the 
+// a pulse is detected on the trigger input pin.
+void triggerIn(){
+  // *** WORK HERE ***
+  // Do we want to just spit out chars with each pulse, or somehow incorporate this info in the
+  // physio data str
+  Serial << F("p");
+}
+
 
 
 /*
