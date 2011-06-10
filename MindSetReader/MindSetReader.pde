@@ -118,49 +118,6 @@ void loop() {
     else
       digitalWrite(LED, LOW);            
   }
-
-#if !DEBUGOUTPUT
-
-  // *** Add your code here ***
- 
-  /* samplingDelay interposes a delay (in microseconds) between serial writes.
-  ** This can be necessary for viewing data in an oscilloscope program that runs slowly.
-  ** 3906 ~ 256Hz 
-  ** 7812 ~ 128Hz is a good starting point on most computers
-  ** Typically raw data sampled at least 4x the frequency of interest is advised. 
-  ** NOTE that using MindSetViewer.pde, the data logging to file appears to work correctly 
-  ** at short samplingDelay (even zero) that cause problems for on-screen plotting. */
-  unsigned long samplingDelay = 7812; // in microseconds
-  unsigned long lastDelay = GetMicrosDelay(lastReceivedPacket);  
-  if ( lastDelay > samplingDelay ) {
-    if (newRawData) {
-      newRawData = false;
-      totalTime += (lastDelay / 100); // in 0.1 milliseconds
-      lastReceivedPacket = micros();      
-      Serial.print(raw, DEC);
-      Serial.print(",");
-      Serial.print(alpha2, DEC);
-      Serial.print(",");
-      Serial.print(alpha1, DEC);
-      Serial.print(",");
-      Serial.print(meditation, DEC);
-      Serial.print(",");
-      Serial.print(attention, DEC);
-      Serial.print(",");
-      Serial.print(totalTime, DEC); // record time (in 0.1 ms) data was received for accuracy
-      Serial.println(",");
-    }
-  }
-          
-  if(bigPacket) {
-    bigPacket = false;        
-    if(errorRate == 0)
-      digitalWrite(LED, HIGH);
-    else
-      digitalWrite(LED, LOW);            
-  }
-  
-#endif        
 }
 
 ////////////////////////////////
