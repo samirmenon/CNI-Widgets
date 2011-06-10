@@ -4,7 +4,10 @@ import serial
 import sys, signal, time
 from datetime import datetime
 
-device = '/dev/ttyACM1'
+# Be sure to set this to the correct device! Under linux, it is something
+# like /dev/ttyACM0. On OSX, it will be /dev/ttyUSBNNNN, where NNNN is
+# some cryptic number. On windows, it will be a COM port (e.g., COM4).
+device = '/dev/ttyACM0'
 
 running = True
 
@@ -22,7 +25,7 @@ if __name__ == "__main__":
         f.write('%% Reference time: %s\n' % str(timeRef))
         ser = serial.Serial(device, 115200, timeout=1)
         time.sleep(0.1)
-        # Send an out pulse
+        # Send a trigger pulse to start scanning
         ser.write('[t]\n');
         # Display the firmware greeting
         out = ser.readlines()
