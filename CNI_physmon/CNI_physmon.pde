@@ -470,12 +470,11 @@ byte getDataPacket(){
 // loop, timing the interval between bytes until it exceeds the threshold.
 // Note that this function will block until it hits a silent period in the serial stream.
 void resync(){
-  g_Uart.flush();
   // Wait for the next silent period:
-  byte numBytesAvail = g_Uart.available();
   do{
+    g_Uart.flush();
     delay(DATA_SILENCE_MILLISEC);
-  }while(g_Uart.available()>numBytesAvail);
+  }while(g_Uart.available()>0);
 }
 
 // Process the current data packet. This involves loading up the buffers and
