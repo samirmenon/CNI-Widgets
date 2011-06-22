@@ -213,6 +213,7 @@ void messageReady() {
       Serial << F("  [s,d,N] Set the display update interval.\n");     
       Serial << F("  [s,n,N] Set the number of consecutive z-scores needed to pulse.\n");
       Serial << F("  [s,o,N] Set the output pulse duration to N milliseconds.\n");
+      Serial << F("  [s,p] Enable scan timing pulse detection.\n");
       Serial << F("  [s,r,N] Set the pulse refractory period to N milliseconds.\n");
       Serial << F("  [s,z,N] Set the z-score threshold, scaled by ") << ZSCALE << F(".\n");
       Serial << F("[p,F] Set physio output format flag. Valid values:\n");
@@ -253,14 +254,6 @@ void messageReady() {
             Serial << F("Output pulse duration is set to ") << g_outPinDuration << F(" msec.\n");
           break;
 
-        case 'r': // Set pulse refractory period (msec)
-          if(i==1)
-            g_refractoryTics = val[0]/DATA_INTERVAL_MILLISEC;
-          else
-            Serial << F("Pulse refractory period is set to ") << g_refractoryTics*DATA_INTERVAL_MILLISEC 
-                   << F(" msec (") << g_refractoryTics << F(" tics).\n");
-          break;
-          
         case 'p': // enable/disable input pulse detection
           if(i==1){
             if(val[0]==0 || val[0]==1)
@@ -270,6 +263,14 @@ void messageReady() {
           }else
             Serial << F("ERROR: Set in trigger state requires one param.\n");
         break;
+        
+        case 'r': // Set pulse refractory period (msec)
+          if(i==1)
+            g_refractoryTics = val[0]/DATA_INTERVAL_MILLISEC;
+          else
+            Serial << F("Pulse refractory period is set to ") << g_refractoryTics*DATA_INTERVAL_MILLISEC 
+                   << F(" msec (") << g_refractoryTics << F(" tics).\n");
+          break;
 
         case 'z': // Set z-score threshold
           if(i==1)
