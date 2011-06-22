@@ -4,7 +4,7 @@
  * This is example code provided by NeuroSky, Inc. and is provided
  * license free.
  *
- * MindSetArduinoReader.pde
+ * MindSetReader.pde
  * Modified from Tutorial.pde by Sean M. Montgomery 2010/09
  * Program displays selected brainwave measurement on a bar LED and 
  * the "errorRate" measure of signal quality (zero = good) on an LED
@@ -14,13 +14,6 @@
  * See http://www.produceconsumerobot.com/mindset/ for additional 
  * installation and usage instructions.
  *
- * 2010/09/16
- * Selected data is output in csv serial stream
- * added raw data parsing
- * added power data parsing
- * added sampling delay to accomodate slower display programs
- * fixed payloadData too small bug
- * fixed syncing bug
  * 
  */
 
