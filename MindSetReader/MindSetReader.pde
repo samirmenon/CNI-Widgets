@@ -40,7 +40,7 @@ int foo = 1;
 #define REDLED  4
 #define BLULED  5
 
-MindSet ms(btSerial, BAUDRATE);
+MindSet ms;
 
 void setup() {
   // Set up the serial port on the USB interface
@@ -63,24 +63,32 @@ void setup() {
     analogWrite(BLULED, i);
     delay(10);
   }
-    
+  
+  // Attach the callback function to the MindSet packet processor
+  ms.attach(dataReady);
+  
   Serial.println("Ready to go.");
 }
 
-char str[64];
-
 void loop() {
-  ms.readData();
-  sprintf(str,"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-          ms.raw, ms.delta,ms.theta,ms.alpha1,ms.alpha2,ms.beta1,ms.beta2,ms.gamma1,ms.gamma2, ms.meditation, ms.attention);
-  Serial.print(str);
-  analogWrite(REDLED, ms.attention*2);
-  analogWrite(BLULED, ms.meditation*2);
-     
-  if(ms.errorRate == 0)
-    digitalWrite(ERRLED, HIGH);
-  else
-    digitalWrite(ERRLED, LOW);            
+  if(btSerial.available()) 
+    ms.process(btSerial.read());
+  // All the action happens in the callback!    
 }
 
+void dataReady() {
+  static char str[64];
+  sprintf(str,"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+          ms.raw(), ms.delta(),ms.theta(),ms.alpha1(),ms.alpha2(),ms.beta1(),ms.beta2(),ms.gamma1(),ms.gamma2(), ms.meditation(), ms.attention());
+  Serial.print(str);
+  if(ms.errorRate()<127 && ms.attention()>0)
+    analogWrite(REDLED, ms.attention()*2);
+  if(ms.errorRate()<127 && ms.meditation()>0)
+    analogWrite(BLULED, ms.meditation()*2);
+     
+  if(ms.errorRate() == 0)
+    digitalWrite(ERRLED, HIGH);
+  else
+    digitalWrite(ERRLED, LOW);     
+}
 

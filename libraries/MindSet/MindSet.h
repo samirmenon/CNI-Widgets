@@ -1,36 +1,48 @@
 #include <WProgram.h>
 
-#ifndef HardwareSerial
-  #define HardwareSerial Serial
-#endif
+#include <inttypes.h>
+
+#define MINDSETBUFFERSIZE 170
+#define MINDSET_WAITING 1
+#define MINDSET_FILLING 2
+
+extern "C" {
+// callback function
+    typedef void (*mindsetCallbackFunction)(void);
+}
+
 
 class MindSet {
   public:
-    MindSet(HardwareSerial btSerialIn, int baudIn) : btSerial(btSerialIn), baud(baudIn) {}
-    MindSet(HardwareSerial btSerialIn) : btSerial(btSerialIn), baud(115200) {}
-    //void init(uint8_t switchvcc);
-    void getData(byte c);
+    MindSet(int timeoutIn) : timeout(timeoutIn) { init(); }
+    MindSet() : timeout(0) { init(); }
 
-    byte errorRate() const { return(mErrorRate); }
-    byte attention() const { return(mAttention); }
-    byte meditation() const { return(mMeditation); }
+    uint8_t process(uint8_t serialByte);
+    
+    void attach(mindsetCallbackFunction newFunction);
+
+    uint8_t errorRate() const { return(mErrorRate); }
+    uint8_t attention() const { return(mAttention); }
+    uint8_t meditation() const { return(mMeditation); }
     short raw() const { return(mRaw); }
     unsigned int delta() const { return(mDelta); }
-    unsigned int theta const { return(mTheta); }
-    unsigned int alpha1 const { return(mAlpha1); }
-    unsigned int alpha2 const { return(mAlpha2); }
-    unsigned int beta1 const { return(mBeta1); }
-    unsigned int beta2 const { return(mBeta2); }
-    unsigned int gamma1 const { return(mGamma1); }
-    unsigned int gamma2 const { return(mGamma2); }
-
-    boolean newRawData const { return(mNewRawData); }
-    boolean bigPacket const { return(mBigPacket); }
+    unsigned int theta() const { return(mTheta); }
+    unsigned int alpha1() const { return(mAlpha1); }
+    unsigned int alpha2() const { return(mAlpha2); }
+    unsigned int beta1() const { return(mBeta1); }
+    unsigned int beta2() const { return(mBeta2); }
+    unsigned int gamma1() const { return(mGamma1); }
+    unsigned int gamma2() const { return(mGamma2); }
 
  private:
-  byte mErrorRate = 255;
-  byte mAttention;
-  byte mMeditation;
+  void reset();
+  void init();
+  void parsePayload();
+ 
+  uint8_t mBigPacket;
+  uint8_t mErrorRate;
+  uint8_t mAttention;
+  uint8_t mMeditation;
   short mRaw;
   unsigned int mDelta;
   unsigned int mTheta;
@@ -41,11 +53,15 @@ class MindSet {
   unsigned int mGamma1;
   unsigned int mGamma2;
 
-  boolean mNewRawData = false;
-  boolean mBigPacket = false;
+  int timeout;
+  uint8_t payloadLength;
+  uint8_t numSyncBytes;
+  uint8_t checksum;
 
-  int baud;
-  int readOneByte();
-
-  HardwareSerial btSerial;
+  mindsetCallbackFunction callback;
+  
+  uint8_t buffer[MINDSETBUFFERSIZE];
+  uint8_t* current; // Pointer to current data
+  uint8_t* last;
+  uint8_t bufferIndex;
 };
