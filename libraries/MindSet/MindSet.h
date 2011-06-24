@@ -1,3 +1,13 @@
+/*
+ * MindSet class for processing data packets from the Neurosky MindSet
+ * EEG headset. 
+ *
+ * The payload parser is based on Tutorial.pde by Sean M. Montgomery 2010/09
+ * (example code provided license-free by NeuroSky, Inc).
+ *
+ * 2011.06.23 Bob Dougherty <bobd@stanford.edu> wrote it.
+ */
+
 #include <WProgram.h>
 
 #include <inttypes.h>

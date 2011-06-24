@@ -19,6 +19,7 @@
  
 #include <MindSet.h>
 
+// Why is this here? Apparently there's a bug in the Arduino pre-pre-compiler.
 int foo = 1;
 
 #if defined(__AVR_AT90USB1286__)
@@ -70,16 +71,25 @@ void setup() {
   Serial.println("Ready to go.");
 }
 
+//
+// Main program loop. 
+//
 void loop() {
+  // We just feed bytes to the MindSet object as they come in. It will
+  // call our callback whenever a complete data packet has been received and parsed.
   if(btSerial.available()) 
     ms.process(btSerial.read());
-  // All the action happens in the callback!    
+    
 }
 
+// 
+// MindSet callback. 
+// This function will be called whenever a new data packet is ready.
+//
 void dataReady() {
   static char str[64];
-  sprintf(str,"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-          ms.raw(), ms.delta(),ms.theta(),ms.alpha1(),ms.alpha2(),ms.beta1(),ms.beta2(),ms.gamma1(),ms.gamma2(), ms.meditation(), ms.attention());
+  sprintf(str,"%5d,%6d,%6d,%6d,%6d,%6d,%6d,%6d,%6d,%4d,%4d\n",
+    ms.raw(),ms.delta(),ms.theta(),ms.alpha1(),ms.alpha2(),ms.beta1(),ms.beta2(),ms.gamma1(),ms.gamma2(),ms.meditation(),ms.attention());
   Serial.print(str);
   if(ms.errorRate()<127 && ms.attention()>0)
     analogWrite(REDLED, ms.attention()*2);
