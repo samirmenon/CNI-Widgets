@@ -17,7 +17,14 @@
 #include <MindSet.h>
 
 // Why is this here? Apparently there's a bug in the Arduino pre-pre-compiler.
-int foo = 1;
+#define FLICKTICS 80
+const byte flickPeriod = FLICKTICS;
+byte flickCount;
+const unsigned long flickDutyMs = 20;
+unsigned long flickDutyStartMs;
+byte repCount;
+long buffer[FLICKTICS];
+
 
 #if defined(__AVR_AT90USB1286__)
   // Teensy2.0++ has LED on D6
@@ -51,17 +58,18 @@ void setup() {
   pinMode(ERRLED, OUTPUT);
   
   btSerial.begin(BAUDRATE);
-  for(byte i=0; i<255; i++){
+  for(int i=0; i<255; i+=4){
     analogWrite(REDLED, i);
     analogWrite(BLULED, i);
     delay(10);
   }
-  for(byte i=255; i>50; i--){
+  for(int i=255; i>=0; i-=4){
     analogWrite(REDLED, i);
     analogWrite(BLULED, i);
     delay(10);
   }
-  
+  analogWrite(REDLED, 0);
+  analogWrite(BLULED, 0);
   // Attach the callback function to the MindSet packet processor
   ms.attach(dataReady);
   
@@ -76,7 +84,19 @@ void loop() {
   // call our callback whenever a complete data packet has been received and parsed.
   if(btSerial.available()) 
     ms.process(btSerial.read());
-    
+  
+  // Turn off the LED if the counter has expired
+  if((millis()-flickDutyStartMs)>flickDutyMs)
+    analogWrite(REDLED,0);
+  
+  if(repCount>=64){
+    for(byte i=0; i<flickPeriod; i++){
+      Serial.print((int)buffer[i]>>4);
+      Serial.print(',');
+    }
+    Serial.println();
+    repCount = 0;
+  }
 }
 
 // 
@@ -84,18 +104,27 @@ void loop() {
 // This function will be called whenever a new data packet is ready.
 //
 void dataReady() {
-  static char str[64];
-  sprintf(str,"%5d,%6d,%6d,%6d,%6d,%6d,%6d,%6d,%6d,%4d,%4d\n",
-    ms.raw(),ms.delta(),ms.theta(),ms.alpha1(),ms.alpha2(),ms.beta1(),ms.beta2(),ms.gamma1(),ms.gamma2(),ms.meditation(),ms.attention());
-  Serial.print(str);
-  if(ms.errorRate()<127 && ms.attention()>0)
-    analogWrite(REDLED, ms.attention()*2);
-  if(ms.errorRate()<127 && ms.meditation()>0)
-    analogWrite(BLULED, ms.meditation()*2);
+  //static char str[64];
+  //if(ms.errorRate()<127 && ms.attention()>0)
+  //  analogWrite(REDLED, ms.attention()*2);
+  //if(ms.errorRate()<127 && ms.meditation()>0)
+  //  analogWrite(BLULED, ms.meditation()*2);
      
   if(ms.errorRate() == 0)
     digitalWrite(ERRLED, HIGH);
   else
-    digitalWrite(ERRLED, LOW);     
+    digitalWrite(ERRLED, LOW);
+  
+  buffer[flickCount] += ms.raw();
+  
+  flickCount++;
+  if(flickCount>=flickPeriod){
+    flickCount = 0;
+    repCount++;
+  }
+  if(flickCount==0){
+    analogWrite(REDLED, 255);
+    flickDutyStartMs = millis();
+  }
 }
 
