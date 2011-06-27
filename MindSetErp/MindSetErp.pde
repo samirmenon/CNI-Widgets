@@ -23,11 +23,12 @@
 #define DEFAULT_REFRESH_INTERVAL 3
 
 // Sample interval is ~1.95ms (1000/512)
-#define FLICKTICS 67
+#define FLICKTICS 64
 const byte flickPeriod = FLICKTICS;
 byte flickCount;
-const unsigned long flickDutyMs = 10;
+const unsigned long flickDutyMs = 20;
 unsigned long flickDutyStartMs;
+unsigned long dataReadyMicros;
 byte repCount;
 long buffer[FLICKTICS];
 
@@ -96,17 +97,18 @@ void setup() {
   
   oled.ssd1306_init(SSD1306_SWITCHCAPVCC);
   oled.display(); // show splashscreen
-  for(int i=0; i<255; i+=4){
+  
+  for(int i=0; i<255; i+=2){
     analogWrite(LED_RED, i);
     analogWrite(LED_GRN, i);
     analogWrite(LED_BLU, i);
-    delay(2);
+    delay(5);
   }
-  for(int i=255; i>=0; i-=4){
+  for(int i=255; i>=0; i-=2){
     analogWrite(LED_RED, i);
     analogWrite(LED_GRN, i);
     analogWrite(LED_BLU, i);
-    delay(2);
+    delay(5);
   }
   
   // Attach the callback function to the MindSet packet processor
@@ -122,6 +124,7 @@ void setup() {
 void loop() {
   // Need a buffer for the line of text that we show.
   static char stringBuffer[SSD1306_LCDLINEWIDTH+1];
+  static unsigned long lastDataMicros;
   
   // We just feed bytes to the MindSet object as they come in. It will
   // call our callback whenever a complete data packet has been received and parsed.
@@ -134,16 +137,21 @@ void loop() {
     analogWrite(LED_GRN,0);
     analogWrite(LED_BLU,0);
   }
-  
-  if(repCount>=128){
+  // Raw values from the MindSet are about -2048 to 2047
+  if(repCount>=16){
+    unsigned long diffMillis = (dataReadyMicros-lastDataMicros)/1000/8;
+    Serial << F("\n");
+    snprintf(stringBuffer, SSD1306_LCDLINEWIDTH+1, "%03d %03d %03d %05d       ",
+              g_mindSet.errorRate(), g_mindSet.attention(), g_mindSet.meditation(), diffMillis);
+    repCount = 0;
+    lastDataMicros = dataReadyMicros;
+    refreshErpDisplay(stringBuffer);
     for(byte i=0; i<flickPeriod; i++){
       // bit-shift division, with rounding:
-      Serial.print((buffer[i]+32)>>6);
-      Serial.print(',');
-      //buffer[i] = 0;
+      Serial << ((buffer[i]+4)>>3) << F(",");
+      buffer[i] = 0;
     }
-    Serial.println();
-    repCount = 0;
+
   }
 }
 
@@ -165,6 +173,8 @@ void dataReady() {
   
   buffer[flickCount] += g_mindSet.raw();
   
+  dataReadyMicros = micros();
+ 
   flickCount++;
   if(flickCount>=flickPeriod){
     flickCount = 0;
@@ -177,6 +187,38 @@ void dataReady() {
     flickDutyStartMs = millis();
   }
 }
+
+void refreshErpDisplay(char *stringBuffer){
+  // 0,0 is at the upper left, so we want to flip Y.
+
+  // Clear the graph
+  oled.clear();
+  
+  long bsum=0, bmax=0, bmin=0;
+  //for(int i=0; i<flickPeriod; i++){
+  //  if(buffer[i]<bmin) bmin = buffer[i];
+  //  if(buffer[i]>bmax) bmax = buffer[i];
+  //  bsum += buffer[i];
+  //}
+  //long buffMn = bsum/flickPeriod;
+  //long buffScale = (bmax-bmin)/48;
+  long buffMn = 0;
+  long buffScale = (2048/48);
+  //Serial << bsum << F(",") << buffMn << F(",") << buffScale << F("\n");
+  for(int i=0; i<flickPeriod; i++){
+    // Clip the y-values to the plot area (SSD1306_LCDHEIGHT-1 at the bottom to 16 at the top)
+    long curY = SSD1306_LCDHEIGHT - (buffer[i]-buffMn)/buffScale;
+    if(curY>SSD1306_LCDHEIGHT-1) curY = SSD1306_LCDHEIGHT-1;
+    else if(curY<16) curY = 16;
+    // Plot the pixel for the current data point
+    oled.setpixel(i, curY, WHITE);
+  }
+  // Draw the status string at the top:
+  oled.drawstring(0, 0, stringBuffer);
+  // Finished drawing the the buffer; copy it to the device:
+  oled.display();
+}
+
 
 void refreshDisplay(char *stringBuffer, byte rawVal){
   // We need to keep track of the current x,y data value. 0,0 is at the
