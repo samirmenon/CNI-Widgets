@@ -94,13 +94,15 @@ char Messenger::readChar() {
   return 0;
 }
 
-void Messenger::copyString(char *string, uint8_t size) {	
+uint8_t Messenger::copyString(char *string, uint8_t size) {
+  uint8_t n;
   if (next()) {
     dumped = 1;
-    strlcpy(string,current,size);
+    n = strlcpy(string,current,size);
   }else{
     if ( size ) string[0] = '\0';
   }
+  return(n);
 }
 
 uint8_t Messenger::checkString(char *string) {

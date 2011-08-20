@@ -67,10 +67,9 @@ unsigned int g_outPulseDuration = DEFAULT_OUT_PULSE_MSEC;
   const byte g_outPin = 11;
   const byte g_inPin = 5;
 #else
-  // Assume Arduino (LED on pin 13)
-  const byte g_outPin = 13;
-  const byte g_inPin = 2;
+  #error "Unknown board!"
 #endif
+HardwareSerial g_uart = HardwareSerial();
 
 byte g_inPulseEdge = FALLING;
 
@@ -84,7 +83,8 @@ Messenger g_message = Messenger(',','[',']');
 // message is received on the serial port.
 void messageReady() {
   int val[10];
-  byte i = 0;
+  byte i,j;
+  char serialBuffer[64];
   if(g_message.available()) {
     // get the command byte
     char command = g_message.readChar();
@@ -101,6 +101,9 @@ void messageReady() {
       Serial << F("      no argument to show the current pulse duration.\n\n");
       Serial << F("[p]   enable input pulse detection. Send a [t] to disable.\n\n");
       Serial << F("[r]   reset default state.\n\n");
+      Serial << F("[s,D] Send data (D) out over the local serial port. D can be up to 64\n");
+      Serial << F("      bytes any binary data, except that it cannot contain the ASCII codes\n");
+      Serial << F("      for '[', ']', or ','. The data are sent out at ") << BAUD << F(" bps.\n\n");      
       break;
       
     case 'o': // Set out-pulse duration (msec)
@@ -133,6 +136,16 @@ void messageReady() {
       digitalWrite(g_outPin, LOW);
       break;
 
+    case 's': // stream serial data
+      j = 0;
+      if(g_message.available()){
+        j = g_message.copyString(serialBuffer, 64);
+        g_uart.write((byte*)serialBuffer,j);
+      }else{
+        Serial << F("WARNING: empty string.\n");
+      }
+      break;
+      
     default:
       Serial << F("[") << command << F("]\n");
       Serial << F("ERROR: Unknown command.\n\n");
@@ -159,6 +172,9 @@ void setup()
   
   // Attach the callback function to the Messenger
   g_message.attach(messageReady);
+  
+  // Set up the UART to support streaming serial data through.
+  g_uart.begin(BAUD);
   
   Serial << F("CNI Trigger Ready. Send the ? command ([?]) for help.\n\n");
 }

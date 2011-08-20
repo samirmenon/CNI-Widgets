@@ -34,7 +34,7 @@ public:
   long readLong(); // Added based on a suggestion by G. Paolo Sani
   float readFloat(); // Added by Bob Dougherty
   char readChar();
-  void copyString(char *string, uint8_t size);
+  uint8_t copyString(char *string, uint8_t size);
   uint8_t checkString(char *string);
   void echoBuffer();
   uint8_t process(int serialByte);
