@@ -12,6 +12,11 @@
 
 #include "pins_arduino.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+
+#define ABSOLUTE 1
+
 // Touch panel wiring.
 // We will switch data-direction and digial values often and in time-critical code,
 // so we'll use direct mapping to the data-direction register (DDR) and the digital
@@ -63,7 +68,7 @@ void setup()
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);
   pinMode(BUTTON_3_PIN, INPUT_PULLUP);
   pinMode(BUTTON_4_PIN, INPUT_PULLUP);
-#ifdef DEBUG  
+#ifdef ABSOLUTE  
   Serial.begin(57600);
 #endif
 }
@@ -88,13 +93,17 @@ void loop()
   int posX, posY;
   byte buttonState;
   unsigned long curMillis;
+  int meanPosX;
+  int meanPosY;
   
   // Get the de-bounced state of the four buttons.
   // We currently use the third button to emulate a left-click and the fourth the emulate a right-click.
   buttonState = readButtonState();
+  curMillis = millis();
+    
+  #ifndef ABSOLUTE
   Mouse.set_buttons(buttonState&c_buttonMask[2], 0, buttonState&c_buttonMask[3]);
   // To emulate scroll wheel: Mouse.scroll(val): val=[-127,+127] (+ to scroll up, - to scroll down)
-  curMillis = millis();
   // The other two buttons send keystrokes.
   if(buttonState&c_buttonMask[0] && curMillis-lastKeyPress[0]>g_keyAutoRepeatDelay){
     Keyboard.print('1');
@@ -104,6 +113,7 @@ void loop()
     Keyboard.print('2');
     lastKeyPress[1] = curMillis;
   }
+  #endif
   
   // Read and process the touchpad.
   if(!readTouchPad(&posX, &posY)){
@@ -120,7 +130,9 @@ void loop()
         // too long ago, we'll fire a double-tap event (left-click). Otherwise, we'll just
         // record the time of this tap.
         if(curMillis-lastTapped<500){
+          #ifndef ABSOLUTE
           Mouse.click();
+          #endif
         }else{
           lastTapped = curMillis;
         }
@@ -176,8 +188,8 @@ void loop()
       // We let this counter overflow. As long as everything is a power of 2, we're good.
       curBuffIndex++;
       // Now compute the mean using a bit-shift to do integer division:
-      int meanPosX = sumX>>KEEP_BITS;
-      int meanPosY = sumY>>KEEP_BITS;
+      meanPosX = sumX>>KEEP_BITS;
+      meanPosY = sumY>>KEEP_BITS;
       int moveX =  (meanPosX-lastPosX);
       int moveY = -(meanPosY-lastPosY);
       int accel = isqrt(moveX*moveX + moveY*moveY);
@@ -185,9 +197,7 @@ void loop()
         moveX *= accel;
         moveY *= accel;
       }
-      #ifdef DEBUG  
-        Serial.print("X="); Serial.print(posX); Serial.print(";  Y="); Serial.println(posY);
-      #else
+      #ifndef ABSOLUTE
         // Mouse move values range from -127 to +127; +X moves right, +Y moves down.
         Mouse.move(moveX, moveY);
       #endif
@@ -196,6 +206,22 @@ void loop()
       lastPosY = meanPosY;
     }
   }
+  #ifdef ABSOLUTE 
+  if(!touching){
+    Serial.print("X=NaN;Y=NaN;");
+  }else{
+    if(meanPosX>999) meanPosX = 999;
+    if(meanPosY>999) meanPosY = 999;
+    char tmp[20]; // resulting string limited to 128 chars
+    snprintf(tmp, 20, "X=%03d;Y=%03d;", meanPosX, meanPosY);
+    Serial.print(tmp);
+    //Serial.print("X="); Serial.print(meanPosX); Serial.print(";"); 
+    //Serial.print("Y="); Serial.print(meanPosY); Serial.print(";"); 
+  }
+  Serial.print("B="); Serial.print(int(buttonState)); Serial.print(";");
+  Serial.println();
+  #endif
+
 }
 
 // The following quickly reads (via direct register access) the state of our buttons
@@ -249,7 +275,7 @@ boolean readTouchPad(int* posX, int* posY)
     TOUCH_PORTREG &= ~(TOUCH_YPOS | TOUCH_YNEG | TOUCH_XPOS); // Pull these 3 low
     TOUCH_PORTREG |=  (TOUCH_XNEG); // Pull XNEG high (try pulling YPOS high too?)
     // wait a bit for things to settle, then read from YNEG
-    delayMicroseconds(200);
+    delayMicroseconds(300);
     *posX = analogRead(TOUCH_YNEG_PIN);
   
     // Vertical read: pull one Y high and the other low to create a vertical voltage 
@@ -259,7 +285,7 @@ boolean readTouchPad(int* posX, int* posY)
     TOUCH_PORTREG &= ~(TOUCH_XPOS | TOUCH_XNEG | TOUCH_YPOS); // Pull these 3 low
     TOUCH_PORTREG |=  (TOUCH_YNEG); // Pull YNEG high  (try pulling XPOS high too?)
     // wait a bit for things to settle, then read from XNEG
-    delayMicroseconds(200);
+    delayMicroseconds(300);
     *posY = analogRead(TOUCH_XNEG_PIN);
     
     // Go back to standby mode
