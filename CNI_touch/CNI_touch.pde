@@ -15,7 +15,10 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#define ABSOLUTE 1
+// If you enable ABSOLUTE mode, you'll get absolute position values on the serial port instead of 
+// mouse movements. Be sure to change the teensy USB device type from keyboard/mouse to serial 
+// (under the tools menu).
+#define ABSOLUTE
 
 // Touch panel wiring.
 // We will switch data-direction and digial values often and in time-critical code,
@@ -57,9 +60,7 @@ byte g_doClick = false;
 // Milliseconds before we start auto-repeating a keystroke.
 unsigned int g_keyAutoRepeatDelay = 250;
 
-// If you enable debugging, you'll get values on the serial port instead of mouse movements.
-// Be sure to change the teensy USB device type from keyboard/mouse to serial (under the tools menu).
-//#define DEBUG
+byte g_sendNans = false;
 
 void setup()
 { 
@@ -123,18 +124,17 @@ void loop()
       static unsigned long lastTapped;
       // If 'touching' was true, then we *were* just being touched; we only get here if
       // a touch epoch just ended. Check to see if that previous touch was a quick 'tap'.
-      curMillis = millis();
-      lastTouchedEnd = curMillis;
+      lastTouchedEnd = millis();
       if(lastTouchedEnd-lastTouchedStart < 200){
         // the last touch looked like a tap, so if the previous tap that we detected wasn't
         // too long ago, we'll fire a double-tap event (left-click). Otherwise, we'll just
         // record the time of this tap.
-        if(curMillis-lastTapped<500){
+        if(lastTouchedEnd-lastTapped<500){
           #ifndef ABSOLUTE
           Mouse.click();
           #endif
         }else{
-          lastTapped = curMillis;
+          lastTapped = lastTouchedEnd;
         }
       }
     }
@@ -207,21 +207,22 @@ void loop()
     }
   }
   #ifdef ABSOLUTE 
-  if(!touching){
-    Serial.print("X=NaN;Y=NaN;");
-  }else{
-    if(meanPosX>999) meanPosX = 999;
-    if(meanPosY>999) meanPosY = 999;
-    char tmp[20]; // resulting string limited to 128 chars
-    snprintf(tmp, 20, "X=%03d;Y=%03d;", meanPosX, meanPosY);
-    Serial.print(tmp);
-    //Serial.print("X="); Serial.print(meanPosX); Serial.print(";"); 
-    //Serial.print("Y="); Serial.print(meanPosY); Serial.print(";"); 
+  static unsigned long prevMillis;
+  if(curMillis-prevMillis>=10 && tracking){
+    if(g_sendNans){
+      Serial.print("X=NaN;Y=NaN;");
+    }else{
+      if(meanPosX>999) meanPosX = 999;
+      if(meanPosY>999) meanPosY = 999;
+      char tmp[20]; // resulting string limited to 128 chars
+      snprintf(tmp, 20, "X=%03d;Y=%03d;", meanPosX, meanPosY);
+      Serial.print(tmp);
+    }
+    Serial.print("B="); Serial.print(int(buttonState)); Serial.print(";");
+    Serial.println();
+    prevMillis = curMillis;
   }
-  Serial.print("B="); Serial.print(int(buttonState)); Serial.print(";");
-  Serial.println();
   #endif
-
 }
 
 // The following quickly reads (via direct register access) the state of our buttons
@@ -275,7 +276,7 @@ boolean readTouchPad(int* posX, int* posY)
     TOUCH_PORTREG &= ~(TOUCH_YPOS | TOUCH_YNEG | TOUCH_XPOS); // Pull these 3 low
     TOUCH_PORTREG |=  (TOUCH_XNEG); // Pull XNEG high (try pulling YPOS high too?)
     // wait a bit for things to settle, then read from YNEG
-    delayMicroseconds(300);
+    delayMicroseconds(500);
     *posX = analogRead(TOUCH_YNEG_PIN);
   
     // Vertical read: pull one Y high and the other low to create a vertical voltage 
@@ -285,7 +286,7 @@ boolean readTouchPad(int* posX, int* posY)
     TOUCH_PORTREG &= ~(TOUCH_XPOS | TOUCH_XNEG | TOUCH_YPOS); // Pull these 3 low
     TOUCH_PORTREG |=  (TOUCH_YNEG); // Pull YNEG high  (try pulling XPOS high too?)
     // wait a bit for things to settle, then read from XNEG
-    delayMicroseconds(300);
+    delayMicroseconds(500);
     *posY = analogRead(TOUCH_XNEG_PIN);
     
     // Go back to standby mode
