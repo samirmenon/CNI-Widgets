@@ -120,7 +120,7 @@ void loop()
   #endif
   
   // Read and process the touchpad.
-  if(!readTouchPad(&posX, &posY)){
+  if(!readTouchPad(&posX, &posY, &posZ)){
     // Not currently being touched.
     // Check for a double-tap event.
     if(g_doClick && touching){
@@ -164,15 +164,18 @@ void loop()
       // discard is finished, but we're not tracking yet- that means that we're filling the buffer.
       buffX[curBuffIndex] = posX;
       buffY[curBuffIndex] = posY;
+      buffZ[curBuffIndex] = posZ;
       if(curBuffIndex >= DISCARD_SIZE){
         curReadIndex = curBuffIndex-DISCARD_SIZE;
         sumX += buffX[curReadIndex];
         sumY += buffY[curReadIndex];
+        sumZ += buffZ[curReadIndex];
       }
       curBuffIndex++;
       if(curBuffIndex==BUFF_SIZE){
         lastPosX = sumX>>KEEP_BITS;
         lastPosY = sumY>>KEEP_BITS;
+        lastPosZ = sumZ>>KEEP_BITS;
         tracking = true;
       }
     }else{
@@ -181,18 +184,22 @@ void loop()
       byte oldIndex = curBuffIndex%BUFF_SIZE;
       sumX -= buffX[oldIndex];
       sumY -= buffY[oldIndex];
+      sumZ -= buffZ[oldIndex];
       // And store the current (newest) value in that buffer position:
       buffX[oldIndex] = posX;
       buffY[oldIndex] = posY;
+      buffZ[oldIndex] = posZ;
       // And update the sum with the newest value:
       curReadIndex = (curBuffIndex+BUFF_SIZE-DISCARD_SIZE)%BUFF_SIZE;
       sumX += buffX[curReadIndex];
       sumY += buffY[curReadIndex];
+      sumZ += buffZ[curReadIndex];
       // We let this counter overflow. As long as everything is a power of 2, we're good.
       curBuffIndex++;
       // Now compute the mean using a bit-shift to do integer division:
       meanPosX = sumX>>KEEP_BITS;
       meanPosY = sumY>>KEEP_BITS;
+      meanPosZ = sumZ>>KEEP_BITS;
       int moveX =  (meanPosX-lastPosX);
       int moveY = -(meanPosY-lastPosY);
       int accel = isqrt(moveX*moveX + moveY*moveY);
@@ -207,6 +214,7 @@ void loop()
       //}
       lastPosX = meanPosX;
       lastPosY = meanPosY;
+      lastPosY = meanPosZ;
     }
   }
   #ifdef ABSOLUTE 
@@ -217,8 +225,9 @@ void loop()
     }else{
       if(meanPosX>999) meanPosX = 999;
       if(meanPosY>999) meanPosY = 999;
-      char tmp[20]; // resulting string limited to 128 chars
-      snprintf(tmp, 20, "X=%03d;Y=%03d;", meanPosX, meanPosY);
+      if(meanPosZ>999) meanPosZ = 999;
+      char tmp[30]; // resulting string limited to 128 chars
+      snprintf(tmp, 30, "X=%03d;Y=%03d;Z=%03d", meanPosX, meanPosY, meanPosZ);
       Serial.print(tmp);
     }
     Serial.print("B="); Serial.print(int(buttonState)); Serial.print(";");
