@@ -225,9 +225,10 @@ void loop()
     }else{
       if(meanPosX>999) meanPosX = 999;
       if(meanPosY>999) meanPosY = 999;
-      if(meanPosZ>999) meanPosZ = 999;
-      char tmp[30]; // resulting string limited to 128 chars
-      snprintf(tmp, 30, "X=%03d;Y=%03d;Z=%03d", meanPosX, meanPosY, meanPosZ);
+      if(meanPosZ<0) posZ *= -1;
+      if(meanPosZ>9999) posZ = 9999;
+      char tmp[20]; // resulting string limited to 128 chars
+      snprintf(tmp, 20, "X=%03d;Y=%03d;Z=%04d;", meanPosX, meanPosY, posZ);
       Serial.print(tmp);
     }
     Serial.print("B="); Serial.print(int(buttonState)); Serial.print(";");
@@ -323,7 +324,8 @@ boolean readTouchPad(int* posX, int* posY, int* Z)
     static int z1,z2;
     z1 = analogRead(TOUCH_XNEG_PIN);
     z1 = analogRead(TOUCH_YPOS_PIN);
-    if (_rxplate != 0) {
+    /** _rxplate is the resistance of the X plate. Measure it
+     * if required if (_rxplate != 0) {
       // now read the x 
       z2 /= z1;
       z2 -= 1;
@@ -341,9 +343,9 @@ boolean readTouchPad(int* posX, int* posY, int* Z)
       z2 *= _rxplate;
       z2 /= 1024;
       *Z = z2;
-    } else {
+    } else { */
       *Z = (1023-(z2-z1));
-    }
+    //}
     
     // Go back to standby mode
     TOUCH_DDRREG &= ~(TOUCH_YPOS | TOUCH_XNEG | TOUCH_YNEG);
