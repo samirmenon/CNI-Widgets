@@ -33,6 +33,7 @@
 #define TOUCH_XPOS CORE_PIN21_BITMASK
 #define TOUCH_YNEG_PIN 20
 #define TOUCH_XNEG_PIN 19
+#define TOUCH_YPOS_PIN 18
 // We'll read the four inputs on port B (pins 0-3)
 #define BUTTON_PINREG CORE_PIN0_PINREG
 static const byte c_buttonMask[] = {CORE_PIN0_BITMASK,CORE_PIN1_BITMASK,CORE_PIN2_BITMASK,CORE_PIN3_BITMASK};
@@ -267,7 +268,8 @@ byte readButtonState()
 // switching quickly. This routine is called often and it's speed affects the responsiveness
 // of the interface, so we need to be as efficient as possible here.
 // Returns TRUE if touched, and puts the coords in posX and posY.
-boolean readTouchPad(int* posX, int* posY)
+// Samir edit : Adding z tracking as well
+boolean readTouchPad(int* posX, int* posY, int* Z)
 {
   // In standby mode YNEG is pulled up, so we know that we are touched if YNEG goes low.
   if(analogRead(TOUCH_YNEG_PIN)<500){
@@ -290,6 +292,49 @@ boolean readTouchPad(int* posX, int* posY)
     // wait a bit for things to settle, then read from XNEG
     delayMicroseconds(500);
     *posY = analogRead(TOUCH_XNEG_PIN);
+    
+    // Pressure read:
+    // 1. Set XPOS as optput and to ground (low, digitalwrite) 
+    TOUCH_DDRREG |=  (TOUCH_XPOS); // Set XPOS as an output
+    TOUCH_PORTREG &= ~(TOUCH_XPOS); // Pull XPOS low
+    // 2. Set YNEG as optput and to VCC (high, digitalwrite)
+    TOUCH_DDRREG |=  (TOUCH_YNEG); // Set YNEG as an output
+    TOUCH_PORTREG |=  (TOUCH_YNEG); // Pull YNEG high
+    // 3. Set XNEG to ground (low, digitalwrite) 
+    TOUCH_PORTREG &= ~(TOUCH_XNEG); // Pull XNEG low
+    // 4. Set XNEG as input
+    TOUCH_DDRREG &= ~(TOUCH_XNEG); // Set XNEG as an input
+    // 5. Set YPOS to ground (low, digitalwrite) 
+    TOUCH_PORTREG &= ~(TOUCH_YPOS); // Pull YPOS low
+    // 6. Set YPOS as input
+    TOUCH_DDRREG &= ~(TOUCH_YPOS); // Set YPOS as an input
+    // 7. Analog read XNEG and YPOS    
+    // wait a bit for things to settle, then read from XNEG and YPOS
+    delayMicroseconds(500);
+    static int z1,z2;
+    z1 = analogRead(TOUCH_XNEG_PIN);
+    z1 = analogRead(TOUCH_YPOS_PIN);
+    if (_rxplate != 0) {
+      // now read the x 
+      z2 /= z1;
+      z2 -= 1;
+
+      // Read X
+      TOUCH_DDRREG &= ~(TOUCH_YPOS | TOUCH_YNEG); // Set YPOS and YNEG as inputs
+      TOUCH_DDRREG |=  (TOUCH_XPOS | TOUCH_XNEG); // Set XPOS and XNEG as outputs
+      TOUCH_PORTREG &= ~(TOUCH_YPOS | TOUCH_YNEG | TOUCH_XPOS); // Pull these 3 low
+      TOUCH_PORTREG |=  (TOUCH_XNEG); // Pull XNEG high (try pulling YPOS high too?)
+      // wait a bit for things to settle, then read from YNEG
+      delayMicroseconds(500);
+      z1 = analogRead(TOUCH_YNEG_PIN);
+      
+      z2 *= z1;
+      z2 *= _rxplate;
+      z2 /= 1024;
+      *Z = z2;
+    } else {
+      *Z = (1023-(z2-z1));
+    }
     
     // Go back to standby mode
     TOUCH_DDRREG &= ~(TOUCH_YPOS | TOUCH_XNEG | TOUCH_YNEG);
