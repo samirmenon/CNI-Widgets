@@ -84,18 +84,20 @@ void loop()
   static byte tracking;
   static int buffX[BUFF_SIZE];
   static int buffY[BUFF_SIZE];
-  static long sumX, sumY;
+  static int buffZ[BUFF_SIZE];
+  static long sumX, sumY, sumZ;
   static unsigned int curBuffIndex;
-  static int lastPosX, lastPosY;
+  static int lastPosX, lastPosY, lastPosZ;
   static unsigned long lastTouchedStart;
   static unsigned long lastTouchedEnd;
   static unsigned long lastKeyPress[2];
   byte curReadIndex;
-  int posX, posY;
+  int posX, posY, posZ;
   byte buttonState;
   unsigned long curMillis;
   int meanPosX;
   int meanPosY;
+  int meanPosZ;
   
   // Get the de-bounced state of the four buttons.
   // We currently use the third button to emulate a left-click and the fourth the emulate a right-click.
